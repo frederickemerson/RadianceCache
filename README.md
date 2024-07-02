@@ -56,7 +56,7 @@ cd src
 1. Run the following commands to perform super-resolution on the LR lighting components. The SR results are stored in "experiment\Bistro_X4\sr_results_x4".
 ```bazaar
 cd src
-.\test_script\BistroX4_test.bat
+.\script\BistroX4_test.bat
 ```
 2. Run the following commands to perform remodulation on the SR lighting components. The final results are stored in "experiment\Bistro_X4\final_results_x4".
 ```bazaar
