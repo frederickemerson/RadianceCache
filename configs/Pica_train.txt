@@ -1,0 +1,9 @@
+root_dir = ../dataset/Pica/train
+grain = 100
+total_folder_num = 33
+test_folder = 0
+valid_folder_num = 6
+test_only = False
+save = Pica_X4
+resume = 1
+save_results = False
