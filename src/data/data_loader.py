@@ -13,7 +13,7 @@ class SubsetSequenceSampler(Sampler):
         self.indices = indices
 
     def __iter__(self):
-        return (self.indices[i] for i in range(len(self.indices)))
+        return iter(self.indices)
 
     def __len__(self):
         return len(self.indices)
@@ -36,8 +36,9 @@ class RenderingDataLoader(DataLoader):
                 self.valid_range += range(i * args.grain, (i+1) * args.grain)
 
         self.test_range = []
-        for i in args.test_folder:
-            self.test_range += range(i * args.grain, (i+1) * args.grain)
+        if args.test_folder is not None:
+            for i in args.test_folder:
+                self.test_range += range(i * args.grain, (i+1) * args.grain)
 
         self.idx_train = []
         for idx in range(self.n_samples):
@@ -63,7 +64,7 @@ class RenderingDataLoader(DataLoader):
         init_kwargs = {
             'dataset': dataset,
             'batch_size': self.batch_size,
-            'num_workers': args.n_threads
+            'num_workers': 1
         }
         super().__init__(sampler=self.sampler, **init_kwargs, drop_last=True)
 
@@ -73,7 +74,7 @@ class RenderingDataLoader(DataLoader):
             train_sampler = SubsetSequenceSampler(self.idx_test)
             return train_sampler, None
 
-        repeat = (self.batch_size * self.test_every) // len(self.idx_train)
+        repeat = ((self.batch_size * self.test_every) // len(self.idx_train)) + 1
         train_idx = np.repeat(self.idx_train, repeat)
 
         np.random.seed(0)

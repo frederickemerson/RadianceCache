@@ -8,6 +8,8 @@ from tqdm import tqdm
 
 def getFromExr(path):
     bgr = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    if bgr is None:
+        raise ValueError(f"Failed to load image from {path}")
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     return rgb
 
@@ -48,36 +50,45 @@ def calc_psnr_ssim(res_dir, gt_dir):
 
 def remodulation(exp_dir, gt_dir):
     avg_psnr, avg_ssim = 0, 0
-    sr_res_dir = os.path.join(exp_dir, 'sr_results_x4')
-    img_save_dir = os.path.join(exp_dir, 'final_results_x4')
+    sr_res_dir = os.path.join(exp_dir, 'sr_results_x4').replace("\\", "/")
+    img_save_dir = os.path.join(exp_dir, 'final_results_x4').replace("\\", "/")
     folder_num = len(os.listdir(sr_res_dir))
     for ind in range(folder_num):
-        os.makedirs(os.path.join(img_save_dir, f'{ind}'), exist_ok=True)
+        os.makedirs(os.path.join(img_save_dir, str(ind)).replace("\\", "/"), exist_ok=True)
 
-        cur_res_dir = os.path.join(sr_res_dir, f'{ind}')
+        cur_res_dir = os.path.join(sr_res_dir, str(ind)).replace("\\", "/")
         cur_res_lst = os.listdir(cur_res_dir)
         cur_num = len(cur_res_lst)
         cur_psnr, cur_ssim = 0, 0
         for name in tqdm(cur_res_lst):
-            res_path = os.path.join(cur_res_dir, name)
+            if ".png" in name:
+                continue
+            res_path = os.path.join(cur_res_dir, name).replace("\\", "/")
             png_name = name.split('.')[0] + '.png'
 
-            irr = getFromExr(res_path)
-            irr[irr < 0] = 0
-            brdf = getFromExr(os.path.join(gt_dir, f'{ind}', "BRDF", name))
-            emiss_sky = getFromExr(os.path.join(gt_dir, f'{ind}', 'Emission_Sky', name))
-            emiss_sky_mask = ((abs(emiss_sky[:, :, 0]) >= 1e-4) | (abs(emiss_sky[:, :, 1]) >= 1e-4) | (abs(emiss_sky[:, :, 2]) >= 1e-4))[:, :, np.newaxis]
+            try:
+                irr = getFromExr(res_path)
+                irr[irr < 0] = 0
+                brdf_path = os.path.join(gt_dir, str(ind), "BRDF", name).replace("\\", "/")
+                emiss_sky_path = os.path.join(gt_dir, str(ind), "Emission_Sky", name).replace("\\", "/")
+                brdf = getFromExr(brdf_path)
+                emiss_sky = getFromExr(emiss_sky_path)
+                emiss_sky_mask = ((abs(emiss_sky[:, :, 0]) >= 1e-4) | (abs(emiss_sky[:, :, 1]) >= 1e-4) | (abs(emiss_sky[:, :, 2]) >= 1e-4))[:, :, np.newaxis]
 
-            sr_img = brdf * irr
-            sr_img = np.where(emiss_sky_mask, emiss_sky, sr_img)
-            sr_img = (toneMapTev(sr_img)*255).astype(np.uint8)
+                sr_img = brdf * irr
+                sr_img = np.where(emiss_sky_mask, emiss_sky, sr_img)
+                sr_img = (toneMapTev(sr_img) * 255).astype(np.uint8)
 
-            gt_img = getFromExr(os.path.join(gt_dir, f'{ind}', "View_PNG", png_name))
-            cur_psnr += psnr(gt_img, sr_img)
-            cur_ssim += ssim(gt_img, sr_img, win_size=11, channel_axis=2, data_range=255)
+                gt_img_path = os.path.join(gt_dir, str(ind), "View_PNG", png_name).replace("\\", "/")
+                gt_img = getFromExr(gt_img_path)
+                cur_psnr += psnr(gt_img, sr_img)
+                cur_ssim += ssim(gt_img, sr_img, win_size=11, channel_axis=2, data_range=255)
 
-            save_path = os.path.join(cur_res_dir, png_name)
-            cv2.imwrite(save_path, sr_img[:, :, ::-1])
+                save_path = os.path.join(img_save_dir,str(ind), png_name).replace("\\", "/")
+                cv2.imwrite(save_path, sr_img[:, :, ::-1])
+
+            except ValueError as e:
+                print(f"Error processing {name}: {e}")
 
         cur_psnr /= cur_num
         cur_ssim /= cur_num
@@ -99,6 +110,6 @@ if __name__ == '__main__':
                         help='ground truth dir, which contains View_PNG, BRDF and Emisson_Sky.')
     args = parser.parse_args()
 
-    remodulation(args.exp_dir, args.gt_dir)
+    remodulation(args.exp_dir.replace("\\", "/"), args.gt_dir.replace("\\", "/"))
 
 

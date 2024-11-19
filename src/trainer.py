@@ -44,8 +44,10 @@ class Trainer():
         self.model.train()
 
         timer_data, timer_model = utility.timer(), utility.timer()
+        print(self.train_loader.n_samples)
         # TEMP
         for batch, (LR_lst, HR_lst, MV_up_lst, Mask_up_lst, _) in enumerate(self.train_loader):
+            print(f"Batch {batch} - LR: {LR_lst[0].shape}, HR: {HR_lst[0].shape}, MV_up: {MV_up_lst[0].shape}, Mask_up: {Mask_up_lst[0].shape}")
             self.optimizer.zero_grad()
 
             b, c, h, w = HR_lst[0].size()
@@ -55,6 +57,7 @@ class Trainer():
             sr_pre, lstm_state = self.model((lr0, zero_tensor, None))
             lstm_state = utility.repackage_hidden(lstm_state)
             loss = self.loss(sr_pre, hr0, needTem=False)
+            print(f"Initial loss for batch {batch}: {loss.item()}")
 
             for i in range(1, self.num_frames_samples):
                 sr_pre = sr_pre.detach()
@@ -122,19 +125,35 @@ class Trainer():
                 sr = utility.quantize_img(cur_sr)
                 sr_last = utility.quantize_img(pre_sr)
                 if flag < 2:
-                    data_utils.save2Exr(np.array(sr[0, :3, :, :].permute(1, 2, 0).detach().cpu()) * 255,
-                                        ".\\check\\sr_" + str(flag) + ".png")
-                    data_utils.save2Exr(np.array(hr[0, :3, :, :].permute(1, 2, 0).detach().cpu()) * 255,
-                                        ".\\check\\gt_" + str(flag) + ".png")
+                    try:
+                        print(f"Saving SR image to ./check/sr_{flag}.png")
+                        data_utils.save2Exr(np.array(sr[0, :3, :, :].permute(1, 2, 0).detach().cpu()) * 255,
+                                            f"./check/sr_{flag}.png")
+                    except Exception as e:
+                        print(f"Error saving SR image: {e}")
+                    try:
+                        print(f"Saving GT image to ./check/gt_{flag}.png")
+                        data_utils.save2Exr(np.array(hr[0, :3, :, :].permute(1, 2, 0).detach().cpu()) * 255,
+                                            f"./check/gt_{flag}.png")
+                    except Exception as e:
+                        print(f"Error saving GT image: {e}")
                     flag += 1
             else:
                 sr = utility.quantize(cur_sr)
                 sr_last = utility.quantize(pre_sr)
                 if flag < 2:
-                    data_utils.save2Exr(np.array(sr[0, :3, :, :].permute(1, 2, 0).detach().cpu()),
-                                        ".\\check\\sr_" + str(flag) + ".exr")
-                    data_utils.save2Exr(np.array(hr[0, :3, :, :].permute(1, 2, 0).detach().cpu()),
-                                        ".\\check\\gt_" + str(flag) + ".exr")
+                    try:
+                        print(f"Saving SR image to ./check/sr_{flag}.exr")
+                        data_utils.save2Exr(np.array(sr[0, :3, :, :].permute(1, 2, 0).detach().cpu()),
+                                            f"./check/sr_{flag}.exr")
+                    except Exception as e:
+                        print(f"Error saving SR image: {e}")
+                    try:
+                        print(f"Saving GT image to ./check/gt_{flag}.exr")
+                        data_utils.save2Exr(np.array(hr[0, :3, :, :].permute(1, 2, 0).detach().cpu()),
+                                            f"./check/gt_{flag}.exr")
+                    except Exception as e:
+                        print(f"Error saving GT image: {e}")
                     flag += 1
 
             pre_sr = cur_sr

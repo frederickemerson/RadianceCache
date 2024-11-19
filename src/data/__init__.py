@@ -16,4 +16,3 @@ class Data:
         else:
             test_datasets = m.make_model(args, train=False)
             self.loader_valid = data_loader.RenderingDataLoader(args, test_datasets)
-

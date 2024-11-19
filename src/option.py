@@ -83,9 +83,9 @@ parser.add_argument('--precision', type=str, default='single',
 # Training specifications
 parser.add_argument('--reset', action='store_true',
                     help='reset the training')
-parser.add_argument('--test_every', type=int, default=1000,
+parser.add_argument('--test_every', type=int, default=200,
                     help='do test per every N batches')
-parser.add_argument('--epochs', type=int, default=200,
+parser.add_argument('--epochs', type=int, default=10,
                     help='number of epochs to train')
 parser.add_argument('--batch_size', type=int, default=8,
                     help='input batch size for training')
@@ -97,7 +97,7 @@ parser.add_argument('--lr', type=float, default=0.0005,
                     help='learning rate')
 parser.add_argument('--decay', type=str, default='100',
                     help='learning rate decay type')
-parser.add_argument('--gamma', type=float, default=0.5,
+parser.add_argument('--gamma', type=float, default=0.9,
                     help='learning rate decay factor for step decay')
 parser.add_argument('--optimizer', default='ADAM',
                     choices=('SGD', 'ADAM', 'RMSprop'),
