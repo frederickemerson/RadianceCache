@@ -7,3 +7,5 @@ test_only = False
 save = Bistro_X4
 resume = 1
 save_results = False
+elsr_train = ../dataset/elsr-data/train_X4.h5
+elsr_val = ../dataset/elsr-data/val_X4.h5

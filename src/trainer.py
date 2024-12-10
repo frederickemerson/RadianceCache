@@ -1,7 +1,5 @@
 import os
 
-from src.model.sr_common import ELSR
-
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import time
 from decimal import Decimal
@@ -264,7 +262,7 @@ class Trainer():
         torch.set_grad_enabled(True)
 
     def prepare(self, *args):
-        device = torch.device('cpu' if self.args.cpu else 'cuda')
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         def _prepare(tensor):
             if self.args.precision == 'half': tensor = tensor.half()

@@ -1,9 +1,11 @@
+import os
+
 import torch.nn as nn
 import torch
-from src.model import sr_common as sr_com
+from model import sr_common as sr_com
 import torch.nn.functional as F
-from src.model.ConvLSTM import ConvLSTM
-from src.elsr import ELSR
+from model.ConvLSTM import ConvLSTM
+from elsr import ELSR
 
 def make_model(args):
     if args.num_pre_frames != 0:

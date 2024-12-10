@@ -166,4 +166,4 @@ cython_debug/
 #.idea/
 
 # Ignore example-folder
-dataset/
+dataset/g
