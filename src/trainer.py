@@ -1,16 +1,21 @@
 import os
+
+from src.model.sr_common import ELSR
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-import math
 import time
 from decimal import Decimal
 import numpy as np
-import imageio
 import utility
 
 import torch
-import torch.nn.utils as utils
 from tqdm import tqdm
 from data import data_utils
+import torch.nn as nn
+from torch.utils.data import Dataset
+from elsr import ELSR, train as train_elsr, validate as validate_elsr
+from elsr.dataset import TrainDataset, ValDataset
+
 
 class Trainer():
     def __init__(self, args, loader, my_model, my_loss, ckp):
@@ -26,11 +31,52 @@ class Trainer():
         self.valid_loader = loader.loader_valid
         self.loss = my_loss
         self.optimizer = utility.make_optimizer(args, self.model)
-
         if self.args.load != '':
             self.optimizer.load(ckp.dir, epoch=len(ckp.log))
 
+        if args.use_elsr:
+            self.ckp.write_log("Using ELSR as a preprocessing module...")
+            self.elsr = ELSR(upscale_factor=args.scale).to(self.model.device)
+            elsr_pretrained_path = args.elsr_path
+
+            if not elsr_pretrained_path or not os.path.exists(elsr_pretrained_path):
+                self.ckp.write_log("No pretrained elsr model found. Training elsr...")
+                elsr_pretrained_path = self.train_elsr_model(args)  # Automatically train and fetch path
+
+            self.elsr.load_state_dict(torch.load(elsr_pretrained_path))
+            self.elsr.eval()
+        else:
+            self.elsr = None
+
         self.error_last = 1e8
+
+    def train_elsr_model(self, args):
+        self.ckp.write_log("No pretrained ELSR model found. Training ELSR...")
+
+        # Create datasets and dataloaders
+        train_dataset = TrainDataset(args.train_h5)
+        val_dataset = ValDataset(args.val_h5)
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size)
+
+        # Initialize model, loss, and optimizer
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = ELSR(upscale_factor=args.scale).to(device)
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+        # Train and validate
+        for epoch in range(1, args.elsr_epochs + 1):
+            train_loss = train_elsr(model, train_loader, criterion, optimizer, device)
+            val_psnr = validate_elsr(model, val_loader, device)
+            self.ckp.write_log(
+                f"ELSRAutoTrainer Epoch [{epoch}/{args.elsr_epochs}], Loss: {train_loss:.4f}, PSNR: {val_psnr:.4f}")
+
+        # Save model
+        elsr_path = os.path.join(args.ckpt_dir, "elsr_pretrained.pth")
+        torch.save(model.state_dict(), elsr_path)
+        self.ckp.write_log(f"ELSRAutoTrainer: ELSR model saved to {elsr_path}")
+        return model
 
     def train(self):
         self.loss.step()
@@ -47,7 +93,8 @@ class Trainer():
         print(self.train_loader.n_samples)
         # TEMP
         for batch, (LR_lst, HR_lst, MV_up_lst, Mask_up_lst, _) in enumerate(self.train_loader):
-            print(f"Batch {batch} - LR: {LR_lst[0].shape}, HR: {HR_lst[0].shape}, MV_up: {MV_up_lst[0].shape}, Mask_up: {Mask_up_lst[0].shape}")
+            print(
+                f"Batch {batch} - LR: {LR_lst[0].shape}, HR: {HR_lst[0].shape}, MV_up: {MV_up_lst[0].shape}, Mask_up: {Mask_up_lst[0].shape}")
             self.optimizer.zero_grad()
 
             b, c, h, w = HR_lst[0].size()
@@ -74,9 +121,17 @@ class Trainer():
 
                 loss += self.loss(sr_cur, hr, sr_pre_warped, mask_up, needTem=True)
                 sr_pre = sr_cur
+
+                if self.args.use_elsr:
+                    with torch.no_grad():
+                        sr_elsr = self.elsr(lr0)
+                    loss_elsr = self.loss(sr_elsr, hr0, needTem=False)
+                    loss += 0.1 * loss_elsr
+
             loss.backward()
             self.optimizer.step()
             timer_model.hold()
+
             if (batch + 1) % self.args.print_every == 0:
                 self.ckp.write_log('[{}/{}]\t{}\t{:.1f}+{:.1f}s'.format(
                     (batch + 1) * self.args.batch_size,
@@ -118,6 +173,11 @@ class Trainer():
             t1 = time.time()
             sr_pre_warped = data_utils.warp(pre_sr, mv_up)
             cur_sr, lstm_state = self.model((lr, sr_pre_warped, lstm_state))
+            if self.args.use_elsr:
+                with torch.no_grad():
+                    sr_elsr = self.elsr(lr)
+                val_elsr_loss = self.loss(sr_elsr, hr, needTem=False)
+                self.ckp.log[-1, 0] += val_elsr_loss.item()
             lstm_state = utility.repackage_hidden(lstm_state)
             t2 = time.time()
             run_model_time += (t2 - t1)
@@ -205,6 +265,7 @@ class Trainer():
 
     def prepare(self, *args):
         device = torch.device('cpu' if self.args.cpu else 'cuda')
+
         def _prepare(tensor):
             if self.args.precision == 'half': tensor = tensor.half()
             return tensor.to(device)
@@ -218,3 +279,73 @@ class Trainer():
         else:
             epoch = self.optimizer.get_last_epoch() + 1
             return epoch >= self.args.epochs
+
+    def train_elsr(self, args):
+        import torchvision.transforms as transforms
+        from torch.utils.data import DataLoader
+        from model.sr_common import ELSR
+        from PIL import Image
+
+        # Create dataset class for LR-HR image pairs
+        class LRDataset(Dataset):
+            def __init__(self, lr_dir, hr_dir, transform=None):
+                self.lr_dir = lr_dir
+                self.hr_dir = hr_dir
+                self.lr_images = sorted(os.listdir(lr_dir))
+                self.hr_images = sorted(os.listdir(hr_dir))
+                self.transform = transform
+
+            def __len__(self):
+                return len(self.lr_images)
+
+            def __getitem__(self, idx):
+                lr_path = os.path.join(self.lr_dir, self.lr_images[idx])
+                hr_path = os.path.join(self.hr_dir, self.hr_images[idx])
+
+                lr_image = transforms.ToTensor()(Image.open(lr_path).convert("RGB"))
+                hr_image = transforms.ToTensor()(Image.open(hr_path).convert("RGB"))
+
+                if self.transform:
+                    lr_image = self.transform(lr_image)
+                    hr_image = self.transform(hr_image)
+
+                return lr_image, hr_image
+
+        # Training function for elsr
+        def run_elsr_training():
+            self.ckp.write_log("Starting elsr training...")
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+            # Prepare dataset and dataloader
+            transform = transforms.Compose([transforms.Resize((64, 64))])  # Resize for uniformity
+            dataset = LRDataset(args.lr_dir, args.hr_dir, transform=transform)
+            dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+
+            # Initialize elsr, loss, and optimizer
+            elsr_model = ELSR(upscale_factor=args.scale).to(device)
+            criterion = nn.MSELoss()
+            optimizer = torch.optim.Adam(elsr_model.parameters(), lr=args.lr)
+
+            # Training loop
+            for epoch in range(args.elsr_epochs):
+                total_loss = 0.0
+                for lr, hr in dataloader:
+                    lr, hr = lr.to(device), hr.to(device)
+                    optimizer.zero_grad()
+                    sr = elsr_model(lr)
+                    loss = criterion(sr, hr)
+                    loss.backward()
+                    optimizer.step()
+                    total_loss += loss.item()
+
+                self.ckp.write_log(
+                    f"ELSRAutoTrainer: Epoch [{epoch + 1}/{args.elsr_epochs}], Loss: {total_loss / len(dataloader):.4f}")
+
+            # Save elsr model
+            save_path = "elsr_pretrained_auto.pth"
+            torch.save(elsr_model.state_dict(), save_path)
+            self.ckp.write_log(f"ELSRAutoTrainer: elsr pretrained model saved to {save_path}")
+            return save_path
+
+        # Call the training function and return the path
+        return run_elsr_training()

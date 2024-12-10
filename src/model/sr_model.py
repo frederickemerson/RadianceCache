@@ -1,17 +1,29 @@
 import torch.nn as nn
 import torch
-from model import sr_common as sr_com
+from src.model import sr_common as sr_com
 import torch.nn.functional as F
-from model.ConvLSTM import ConvLSTM
+from src.model.ConvLSTM import ConvLSTM
+from src.elsr import ELSR
 
 def make_model(args):
     if args.num_pre_frames != 0:
+        if args.use_elsr:
+            return ELSR(args.scale)  # Initialize elsr with the scale factor
         return SRNet(args)
 
 class SRNet(nn.Module):
     def __init__(self, args=None, conv=sr_com.default_conv):
         super(SRNet, self).__init__()
         self.scale = args.scale
+        self.use_elsr = args.use_elsr
+
+        if self.use_elsr:
+            self.elsr = ELSR(upscale_factor=self.scale).to(args.device)
+            if args.elsr_path and os.path.exists(args.elsr_path):
+                self.elsr.load_state_dict(torch.load(args.elsr_path))
+        else:
+            self.elsr = None
+
         self.act = nn.ReLU(True)
         self.in_dims = args.input_total_dims
         self.n_feats = args.n_feats
@@ -61,10 +73,13 @@ class SRNet(nn.Module):
         self.upsize = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv3 = conv(feats, self.n_feats, 3)
 
-        self.upsampling = nn.Sequential(
-            conv(self.n_feats, args.output_dims * self.scale * self.scale, 3),
-            nn.PixelShuffle(self.scale)
-        )
+        if args.use_elsr:
+            self.upsampling = ELSR(args.scale)
+        else:
+            self.upsampling = nn.Sequential(
+                conv(self.n_feats, args.output_dims * self.scale * self.scale, 3),
+                nn.PixelShuffle(self.scale)
+            )
 
     def crop_tensor(self, actual: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         # https://github.com/milesial/Pytorch-UNet/blob/master/unet/unet_parts.py
@@ -76,6 +91,10 @@ class SRNet(nn.Module):
 
     def forward(self, x_tuple):
         x, last_sr, prev_state = x_tuple
+
+        if self.use_elsr and self.elsr:
+            with torch.no_grad():
+                x = self.elsr(x)
 
         # split cur frames
         x_cur_frames = x[:, :self.in_dims, :, :]
@@ -115,7 +134,6 @@ class SRNet(nn.Module):
         x_decoder1 = self.decoder_1(torch.cat((x_decoder2_up, x_encoder1), dim=1))
 
         x_in = self.conv3(x_decoder1)
-        x_res = self.upsampling(x_in)
+        x_res = self.upsampling(x_in)  # Use elsr or the default upsampling module
 
         return x_res, state
-

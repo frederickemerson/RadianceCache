@@ -151,3 +151,31 @@ class GatedConv2dWithActivation(torch.nn.Module):
             return x
 
 
+class ResBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.prelu = nn.PReLU()
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.prelu(out)
+        out = self.conv2(out)
+        return x + out
+
+
+class ELSR(nn.Module):
+    def __init__(self, upscale_factor):
+        super(ELSR, self).__init__()
+        self.layer1 = nn.Conv2d(3, 6, kernel_size=3, padding=1)
+        self.resblock = ResBlock(6, 6)
+        self.layer5 = nn.Conv2d(6, 3 * (upscale_factor ** 2), kernel_size=3, padding=1)
+        self.pixel_shuffle = nn.PixelShuffle(upscale_factor)
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.resblock(x)
+        x = self.layer5(x)
+        x = self.pixel_shuffle(x)
+        return x

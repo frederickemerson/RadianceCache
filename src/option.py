@@ -80,6 +80,14 @@ parser.add_argument('--precision', type=str, default='single',
                     choices=('single', 'half'),
                     help='FP precision for test (single | half)')
 
+#elsr specifications
+parser.add_argument('--use_elsr', action='store_true',
+                    help="Use elsr as the super-resolution backbone")
+parser.add_argument('--elsr_path', type=str, default='', help="Path to the pretrained elsr model.")
+parser.add_argument('--elsr_epochs', type=int, default=10, help="Number of epochs for elsr training.")
+parser.add_argument('--elsr_train', type=str, help="Path to elsr training dataset.")
+parser.add_argument('--elsr_val', type=str, help="Path to elsr validation dataset.")
+
 # Training specifications
 parser.add_argument('--reset', action='store_true',
                     help='reset the training')

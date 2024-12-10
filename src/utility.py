@@ -10,7 +10,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from model.ssim import ssim
 import numpy as np
-
+import tensorflow.lite as tflite
+import numpy as np
 import torch
 import torch.optim as optim
 import torch.optim.lr_scheduler as lrs
@@ -295,3 +296,33 @@ def make_optimizer(args, target):
     optimizer = CustomOptimizer(trainable, **kwargs_optimizer)
     optimizer._register_scheduler(scheduler_class, **kwargs_scheduler)
     return optimizer
+
+
+def load_tflite_model(model_path):
+    """
+    Load a TensorFlow Lite model.
+    """
+    interpreter = tflite.Interpreter(model_path=model_path)
+    interpreter.allocate_tensors()
+    return interpreter
+
+
+def run_tflite_inference(interpreter, input_image):
+    """
+    Run inference on a TFLite model.
+    """
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+
+    # Preprocess the input
+    input_data = np.expand_dims(input_image, axis=0).astype(np.float32)
+
+    # Set the input tensor
+    interpreter.set_tensor(input_details[0]['index'], input_data)
+
+    # Run inference
+    interpreter.invoke()
+
+    # Get the output
+    output_data = interpreter.get_tensor(output_details[0]['index'])
+    return np.squeeze(output_data, axis=0)
